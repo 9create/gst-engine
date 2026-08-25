@@ -36,7 +36,17 @@ All 13 tests cover GST calculation, splitting, duplicate detection, and validati
 
 ## Status
 
-Actively developed. Built as the core calculation engine for [VoltaBill](https://voltabill.netlify.app), an invoicing tool for electrical contractors — designed to be reusable across other GST-registered businesses.
+🚧 **MVP / Prototype** — Core calculation logic is implemented and fully tested (13 passing tests), but this is not yet production-hardened. 
+
+**What's solid:** GST calculation, CGST/SGST/IGST split, duplicate-item detection, basic invoice validation.
+
+**What's not yet handled:** HSN-code-based automatic GST rate lookup, composition scheme, reverse charge, exempted items, and precision-safe decimal arithmetic (currently uses `f64`, which is not ideal for financial calculations at scale).
+
+Built as the core calculation engine for [VoltaBill](https://voltabill.netlify.app), an invoicing tool for electrical contractors.
+
+## Author
+
+Built by [Mayur Nagrare](https://github.com/9create) — May Software Solutions
 
 ## Author
 
