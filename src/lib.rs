@@ -1,14 +1,22 @@
 // GST Engine - GST calculation, validation, aur duplicate detection
 
-// ===== GST CALCULATION =====
+// ===== GST CALCULATION (Robust Version) =====
 
-pub fn calculate_gst(amount: f64, gst_percent: f64) -> f64 {
-    amount * gst_percent / 100.0
+// Ab function crash nahi karega galat input pe -
+// ya toh sahi number dega (Ok), ya error message dega (Err)
+pub fn calculate_gst(amount: f64, gst_percent: f64) -> Result<f64, String> {
+    if amount < 0.0 {
+        return Err("Amount negative nahi ho sakta".to_string());
+    }
+    if gst_percent < 0.0 || gst_percent > 28.0 {
+        return Err("GST percentage 0 se 28 ke beech hona chahiye".to_string());
+    }
+    Ok(amount * gst_percent / 100.0)
 }
 
-pub fn calculate_total(amount: f64, gst_percent: f64) -> f64 {
-    let gst = calculate_gst(amount, gst_percent);
-    amount + gst
+pub fn calculate_total(amount: f64, gst_percent: f64) -> Result<f64, String> {
+    let gst = calculate_gst(amount, gst_percent)?; // agar upar error aaya, yahi return ho jayega
+    Ok(amount + gst)
 }
 
 pub struct GstSplit {
@@ -17,46 +25,39 @@ pub struct GstSplit {
     pub igst: f64,
 }
 
-pub fn calculate_gst_split(amount: f64, gst_percent: f64, same_state: bool) -> GstSplit {
-    let total_gst = calculate_gst(amount, gst_percent);
+pub fn calculate_gst_split(amount: f64, gst_percent: f64, same_state: bool) -> Result<GstSplit, String> {
+    let total_gst = calculate_gst(amount, gst_percent)?;
 
     if same_state {
-        GstSplit {
+        Ok(GstSplit {
             cgst: total_gst / 2.0,
             sgst: total_gst / 2.0,
             igst: 0.0,
-        }
+        })
     } else {
-        GstSplit {
+        Ok(GstSplit {
             cgst: 0.0,
             sgst: 0.0,
             igst: total_gst,
-        }
+        })
     }
 }
 
 // ===== DUPLICATE DETECTION =====
 
-// Ek invoice item ka structure
 pub struct InvoiceItem {
     pub name: String,
     pub quantity: f64,
 }
 
-// List of items check karega ki koi item naam repeat toh nahi ho raha
-// (case-insensitive: "MCB Switch" aur "mcb switch" dono same maane jayenge)
 pub fn find_duplicate_items(items: &[InvoiceItem]) -> Vec<String> {
     let mut seen: Vec<String> = Vec::new();
     let mut duplicates: Vec<String> = Vec::new();
 
     for item in items {
-        // Naam ko lowercase aur trim karke normalize karte hain,
-        // taaki "MCB Switch " aur "mcb switch" dono match ho jayein
         let normalized = item.name.trim().to_lowercase();
 
         if seen.contains(&normalized) {
-            // Agar pehle se dekha hua naam hai, aur abhi tak duplicates list me nahi hai,
-            // tabhi add karo (taaki ek hi naam baar-baar list me na aaye)
             if !duplicates.contains(&item.name) {
                 duplicates.push(item.name.clone());
             }
@@ -70,23 +71,19 @@ pub fn find_duplicate_items(items: &[InvoiceItem]) -> Vec<String> {
 
 // ===== VALIDATION =====
 
-// GSTIN format check: 15 characters hone chahiye (India ka standard rule)
 pub fn is_valid_gstin(gstin: &str) -> bool {
     let trimmed = gstin.trim();
     trimmed.len() == 15 && trimmed.chars().all(|c| c.is_alphanumeric())
 }
 
-// Amount negative nahi hona chahiye
 pub fn is_valid_amount(amount: f64) -> bool {
-    amount >= 0.0
+    amount >= 0.0 && amount.is_finite() // is_finite() = infinity ya "NaN" jaisi ajeeb values reject karega
 }
 
-// Buyer ka naam khali nahi hona chahiye
 pub fn is_valid_buyer_name(name: &str) -> bool {
     !name.trim().is_empty()
 }
 
-// Poora invoice ek saath validate karta hai, saari galtiyon ki list deta hai
 pub fn validate_invoice(gstin: &str, amount: f64, buyer_name: &str) -> Vec<String> {
     let mut errors: Vec<String> = Vec::new();
 
@@ -95,7 +92,7 @@ pub fn validate_invoice(gstin: &str, amount: f64, buyer_name: &str) -> Vec<Strin
     }
 
     if !is_valid_amount(amount) {
-        errors.push("Amount negative nahi ho sakta".to_string());
+        errors.push("Amount negative ya invalid nahi ho sakta".to_string());
     }
 
     if !is_valid_buyer_name(buyer_name) {
@@ -113,17 +110,35 @@ mod tests {
 
     #[test]
     fn test_gst_calculation() {
-        assert_eq!(calculate_gst(1000.0, 18.0), 180.0);
+        assert_eq!(calculate_gst(1000.0, 18.0), Ok(180.0));
     }
 
     #[test]
     fn test_total_calculation() {
-        assert_eq!(calculate_total(1000.0, 18.0), 1180.0);
+        assert_eq!(calculate_total(1000.0, 18.0), Ok(1180.0));
+    }
+
+    #[test]
+    fn test_negative_amount_returns_error() {
+        let result = calculate_gst(-500.0, 18.0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_negative_gst_percent_returns_error() {
+        let result = calculate_gst(1000.0, -18.0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_gst_percent_too_high_returns_error() {
+        let result = calculate_gst(1000.0, 999.0);
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_gst_split_same_state() {
-        let split = calculate_gst_split(1000.0, 18.0, true);
+        let split = calculate_gst_split(1000.0, 18.0, true).unwrap();
         assert_eq!(split.cgst, 90.0);
         assert_eq!(split.sgst, 90.0);
         assert_eq!(split.igst, 0.0);
@@ -131,10 +146,16 @@ mod tests {
 
     #[test]
     fn test_gst_split_different_state() {
-        let split = calculate_gst_split(1000.0, 18.0, false);
+        let split = calculate_gst_split(1000.0, 18.0, false).unwrap();
         assert_eq!(split.cgst, 0.0);
         assert_eq!(split.sgst, 0.0);
         assert_eq!(split.igst, 180.0);
+    }
+
+    #[test]
+    fn test_gst_split_with_invalid_input_returns_error() {
+        let result = calculate_gst_split(-1000.0, 18.0, true);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -170,8 +191,13 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_amount() {
+    fn test_invalid_amount_negative() {
         assert!(!is_valid_amount(-500.0));
+    }
+
+    #[test]
+    fn test_invalid_amount_infinite() {
+        assert!(!is_valid_amount(f64::INFINITY));
     }
 
     #[test]
